@@ -10,3 +10,9 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Helper function to get a publicly accessible URL for a file
+export const getPublicFileUrl = (path: string) => {
+  const { data } = supabase.storage.from('pdfs').getPublicUrl(path);
+  return data?.publicUrl || '';
+};

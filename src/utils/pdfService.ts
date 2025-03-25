@@ -1,6 +1,6 @@
 
 import { PDFDocument, SupabasePDFDocument } from './types';
-import { supabase } from './supabase';
+import { supabase, getPublicFileUrl } from './supabase';
 
 // Convert Supabase format to our app format
 const mapToAppFormat = (doc: SupabasePDFDocument): PDFDocument => {
@@ -8,7 +8,7 @@ const mapToAppFormat = (doc: SupabasePDFDocument): PDFDocument => {
     id: doc.id,
     title: doc.title,
     fileName: doc.file_name,
-    url: doc.path ? `${supabase.storage.from('pdfs').getPublicUrl(doc.path).data?.publicUrl}` : '',
+    url: doc.path ? getPublicFileUrl(doc.path) : '',
     uploadedAt: doc.created_at,
     size: doc.size,
     path: doc.path
@@ -25,13 +25,13 @@ export const getPDFDocuments = async (): Promise<PDFDocument[]> => {
     
     if (error) {
       console.error('Error fetching documents:', error);
-      return [];
+      throw error;
     }
     
-    return data.map(mapToAppFormat);
+    return (data || []).map(mapToAppFormat);
   } catch (error) {
     console.error('Error in getPDFDocuments:', error);
-    return [];
+    throw error;
   }
 };
 
@@ -46,13 +46,13 @@ export const getPDFDocumentById = async (id: string): Promise<PDFDocument | unde
     
     if (error || !data) {
       console.error('Error fetching document by ID:', error);
-      return undefined;
+      throw error;
     }
     
     return mapToAppFormat(data as SupabasePDFDocument);
   } catch (error) {
     console.error('Error in getPDFDocumentById:', error);
-    return undefined;
+    throw error;
   }
 };
 
@@ -64,28 +64,22 @@ export const addPDFDocument = async (
   try {
     // 1. Upload file to storage
     const fileName = `${Date.now()}_${file.name}`;
-    const filePath = `public/${fileName}`;
+    const filePath = `${fileName}`;
     
     const { error: uploadError } = await supabase.storage
       .from('pdfs')
-      .upload(filePath, file);
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: 'application/pdf'
+      });
     
     if (uploadError) {
       console.error('Error uploading file:', uploadError);
-      return null;
+      throw uploadError;
     }
     
-    // 2. Get the public URL
-    const { data: urlData } = supabase.storage
-      .from('pdfs')
-      .getPublicUrl(filePath);
-    
-    if (!urlData?.publicUrl) {
-      console.error('Could not get public URL for uploaded file');
-      return null;
-    }
-    
-    // 3. Store metadata in database
+    // 2. Store metadata in database
     const { data, error: dbError } = await supabase
       .from('pdf_documents')
       .insert({
@@ -99,13 +93,13 @@ export const addPDFDocument = async (
     
     if (dbError || !data) {
       console.error('Error inserting document metadata:', dbError);
-      return null;
+      throw dbError;
     }
     
     return mapToAppFormat(data as SupabasePDFDocument);
   } catch (error) {
     console.error('Error in addPDFDocument:', error);
-    return null;
+    throw error;
   }
 };
 
@@ -121,7 +115,7 @@ export const deletePDFDocument = async (id: string): Promise<boolean> => {
     
     if (fetchError || !doc) {
       console.error('Error fetching document for deletion:', fetchError);
-      return false;
+      throw fetchError;
     }
     
     // 2. Delete file from storage
@@ -132,6 +126,7 @@ export const deletePDFDocument = async (id: string): Promise<boolean> => {
       
       if (storageError) {
         console.error('Error deleting file from storage:', storageError);
+        throw storageError;
       }
     }
     
@@ -143,12 +138,12 @@ export const deletePDFDocument = async (id: string): Promise<boolean> => {
     
     if (dbError) {
       console.error('Error deleting document from database:', dbError);
-      return false;
+      throw dbError;
     }
     
     return true;
   } catch (error) {
     console.error('Error in deletePDFDocument:', error);
-    return false;
+    throw error;
   }
 };
