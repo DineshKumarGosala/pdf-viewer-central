@@ -6,35 +6,26 @@ import Header from '@/components/Header';
 import PDFViewer from '@/components/PDFViewer';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Download } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 export default function ViewPDF() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [document, setDocument] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
   
+  const { data: document, isLoading, error } = useQuery({
+    queryKey: ['pdfDocument', id],
+    queryFn: () => id ? getPDFDocumentById(id) : Promise.resolve(undefined),
+    enabled: !!id,
+  });
+  
+  // Redirect if document not found or error
   useEffect(() => {
-    if (!id) {
+    if ((!isLoading && !document) || error) {
+      toast.error('Document not found');
       navigate('/');
-      return;
     }
-    
-    try {
-      const doc = getPDFDocumentById(id);
-      
-      if (!doc) {
-        navigate('/');
-        return;
-      }
-      
-      setDocument(doc);
-    } catch (error) {
-      console.error('Error fetching document:', error);
-      navigate('/');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [id, navigate]);
+  }, [document, isLoading, error, navigate]);
   
   const handleGoBack = () => {
     navigate('/');

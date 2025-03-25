@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isAdminAuthenticated, loginAdmin } from '@/utils/adminAuth';
@@ -9,42 +8,71 @@ import PDFCard from '@/components/PDFCard';
 import { motion } from 'framer-motion';
 import { Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 export default function Admin() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [uploadTitle, setUploadTitle] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  
+  const { data: documents = [], isLoading: isLoadingDocs } = useQuery({
+    queryKey: ['pdfDocuments'],
+    queryFn: getPDFDocuments,
+    enabled: isAuthenticated,
+  });
+  
+  const uploadMutation = useMutation({
+    mutationFn: async ({ file, title }: { file: File; title: string }) => {
+      const result = await addPDFDocument(file, title);
+      if (!result) throw new Error('Failed to upload file');
+      return result;
+    },
+    onSuccess: () => {
+      toast.success('PDF uploaded successfully');
+      setUploadTitle('');
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      queryClient.invalidateQueries({ queryKey: ['pdfDocuments'] });
+    },
+    onError: (error) => {
+      console.error('Error uploading PDF:', error);
+      toast.error('Failed to upload PDF');
+    }
+  });
+  
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const success = await deletePDFDocument(id);
+      if (!success) throw new Error('Failed to delete document');
+      return id;
+    },
+    onSuccess: () => {
+      toast.success('PDF deleted successfully');
+      queryClient.invalidateQueries({ queryKey: ['pdfDocuments'] });
+    },
+    onError: (error) => {
+      console.error('Error deleting PDF:', error);
+      toast.error('Failed to delete PDF');
+    }
+  });
   
   useEffect(() => {
     const checkAuth = () => {
       const isAuth = isAdminAuthenticated();
       setIsAuthenticated(isAuth);
       setIsLoading(false);
-      
-      if (isAuth) {
-        loadDocuments();
-      }
     };
     
     checkAuth();
   }, []);
-  
-  const loadDocuments = () => {
-    try {
-      const docs = getPDFDocuments();
-      setDocuments(docs);
-    } catch (error) {
-      console.error('Error loading documents:', error);
-      toast.error('Failed to load documents');
-    }
-  };
   
   const handleLogin = (e: FormEvent) => {
     e.preventDefault();
@@ -58,7 +86,6 @@ export default function Admin() {
     
     if (success) {
       setIsAuthenticated(true);
-      loadDocuments();
       toast.success('Successfully logged in');
     } else {
       toast.error('Invalid credentials');
@@ -84,54 +111,11 @@ export default function Admin() {
       return;
     }
     
-    setIsUploading(true);
-    
-    try {
-      // Convert the file to a data URL
-      const fileReader = new FileReader();
-      fileReader.readAsDataURL(selectedFile);
-      
-      fileReader.onload = () => {
-        // Create a new PDF document
-        const newDoc = addPDFDocument({
-          title: uploadTitle,
-          fileName: selectedFile.name,
-          url: fileReader.result as string,
-          size: selectedFile.size
-        });
-        
-        setDocuments(prev => [...prev, newDoc]);
-        setUploadTitle('');
-        setSelectedFile(null);
-        
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
-        
-        toast.success('PDF uploaded successfully');
-      };
-    } catch (error) {
-      console.error('Error uploading PDF:', error);
-      toast.error('Failed to upload PDF');
-    } finally {
-      setIsUploading(false);
-    }
+    uploadMutation.mutate({ file: selectedFile, title: uploadTitle });
   };
   
   const handleDelete = (id: string) => {
-    try {
-      const success = deletePDFDocument(id);
-      
-      if (success) {
-        setDocuments(prev => prev.filter(doc => doc.id !== id));
-        toast.success('PDF deleted successfully');
-      } else {
-        toast.error('Failed to delete PDF');
-      }
-    } catch (error) {
-      console.error('Error deleting PDF:', error);
-      toast.error('An error occurred while deleting the PDF');
-    }
+    deleteMutation.mutate(id);
   };
   
   if (isLoading) {
@@ -274,9 +258,9 @@ export default function Admin() {
             <button
               type="submit"
               className="btn-primary mt-4"
-              disabled={isUploading}
+              disabled={uploadMutation.isPending}
             >
-              {isUploading ? (
+              {uploadMutation.isPending ? (
                 <span className="flex items-center">
                   <div className="h-4 w-4 rounded-full border border-white border-t-transparent animate-spin mr-2"></div>
                   Uploading...
@@ -293,7 +277,11 @@ export default function Admin() {
         >
           <h2 className="text-xl font-semibold mb-4">Manage Documents</h2>
           
-          {documents.length > 0 ? (
+          {isLoadingDocs ? (
+            <div className="flex justify-center items-center h-64">
+              <div className="h-10 w-10 rounded-full border-2 border-dbms-accent border-t-transparent animate-spin"></div>
+            </div>
+          ) : documents.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {documents.map((doc) => (
                 <PDFCard 

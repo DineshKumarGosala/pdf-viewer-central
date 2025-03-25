@@ -5,26 +5,22 @@ import { PDFDocument } from '@/utils/types';
 import PDFCard from '@/components/PDFCard';
 import Header from '@/components/Header';
 import { motion } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 export default function Index() {
-  const [documents, setDocuments] = useState<PDFDocument[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: documents = [], isLoading, error } = useQuery({
+    queryKey: ['pdfDocuments'],
+    queryFn: getPDFDocuments,
+  });
   
+  // Show error toast if there was an error fetching documents
   useEffect(() => {
-    // Fetch documents
-    const fetchDocuments = () => {
-      try {
-        const docs = getPDFDocuments();
-        setDocuments(docs);
-      } catch (error) {
-        console.error('Error fetching documents:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    fetchDocuments();
-  }, []);
+    if (error) {
+      toast.error('Failed to load documents');
+      console.error('Error fetching documents:', error);
+    }
+  }, [error]);
   
   return (
     <div className="min-h-screen flex flex-col">
